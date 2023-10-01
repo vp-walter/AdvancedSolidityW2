@@ -22,6 +22,7 @@ contract NFTCollateralBank is IERC721Receiver, Ownable2Step {
     uint256 private constant _NFT_COLLATERAL_VALUE = 10;
 
     mapping(uint256 => address) private _tokenDepositLedger;
+    mapping(address => uint256) private _lastDeposit;
 
     constructor(address stakingReward_, address nftProvider_) {
         _stakingReward = StakingReward(stakingReward_);
@@ -33,8 +34,12 @@ contract NFTCollateralBank is IERC721Receiver, Ownable2Step {
      * @param tokenId the token which they want to deposit for StakingRewards.
      */
     function deposit(uint256 tokenId) external {
+        require((_lastDeposit[msg.sender] + 1 days < block.timestamp), "Too soon to deposit again");
+        _lastDeposit[msg.sender] = block.timestamp;
+
         _tokenDepositLedger[tokenId] = msg.sender;
         _nftProvider.safeTransferFrom(msg.sender, address(this), tokenId);
+
         _stakingReward.mint(msg.sender, _NFT_COLLATERAL_VALUE * (10 ** _stakingReward.decimals()));
     }
 

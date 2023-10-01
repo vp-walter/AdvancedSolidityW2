@@ -4,10 +4,14 @@ pragma solidity 0.8.19;
 import {Test} from "forge-std/Test.sol";
 import "forge-std/console.sol";
 import {NFTWithLimitedSupply} from "../src/NFTEcosystem/NFTWithLimitedSupply.sol";
+import {StakingReward} from "../src/NFTEcosystem/StakingReward.sol";
+import {NFTCollateralBank} from "../src/NFTEcosystem/NFTCollateralBank.sol";
 import {Merkle} from "murky/src/Merkle.sol";
 
 contract NFTWithLimitedSupplyTest is Test {
     NFTWithLimitedSupply public nftIssuer;
+    StakingReward public stakingRewards;
+    NFTCollateralBank public bank;
     address internal _bob;
     address internal _alice;
     Merkle internal _allowList;
@@ -15,18 +19,29 @@ contract NFTWithLimitedSupplyTest is Test {
     bytes32 internal _root;
 
     function setUp() public {
+        // setup addresses.
         _alice = address(1);
         vm.label(_alice, "Alice");
         _bob = address(2);
         vm.label(_bob, "Bob");
         vm.deal(_alice, 100 ether);
         vm.deal(_bob, 100 ether);
+        // setup allow list for discounted minting.
         _allowList = new Merkle();
         _data = new bytes32[](2);
         _data[0] = keccak256(abi.encode(_alice, uint256(1)));
         _data[1] = keccak256(abi.encode(_bob, uint256(2)));
         _root = _allowList.getRoot(_data);
+        // create NFT issuer
         nftIssuer = new NFTWithLimitedSupply("Limited Supply Token", "LMT", _root);
+        // create staking rewards
+        stakingRewards = new StakingReward("Staking Reward", "RWRD");
+        // create NFT Collateral Bank
+        bank = new NFTCollateralBank(address(stakingRewards), address(nftIssuer));
+        // add the bank as an operator to staking rewards.abi
+        stakingRewards.setOperator(address(bank), true);
+
+        vm.warp(2 days);
     }
 
     function testTokenLimit() public {
@@ -65,11 +80,66 @@ contract NFTWithLimitedSupplyTest is Test {
         nftIssuer.discountedMint{value: 0.5 ether}(5, 3, _aliceProof);
     }
 
-    function testCanDepositNFTAndReceiveStake() public {}
+    function testCanDepositNFTAndReceiveStake() public {
+        uint256 tokenId = 15;
+        vm.startPrank(_bob);
+        nftIssuer.mint{value: 1 ether}(tokenId);
+        nftIssuer.setApprovalForAll(address(bank), true);
+        bank.deposit(tokenId);
+        uint256 bobsRewardBalance = stakingRewards.balanceOf(_bob);
+        uint256 bobsNFTBalance = nftIssuer.balanceOf(_bob);
+        vm.stopPrank();
 
-    function testCanDepositAndRedeem() public {}
+        assertEq(bobsRewardBalance, 10 * 10 ** 18);
+        assertEq(bobsNFTBalance, 0);
+    }
 
-    function testCanDepositOnlyOnceInADay() public {}
+    function testCanDepositAndRedeem() public {
+        uint256 tokenId = 15;
+        vm.startPrank(_bob);
+        nftIssuer.mint{value: 1 ether}(tokenId);
+        nftIssuer.setApprovalForAll(address(bank), true);
+        bank.deposit(tokenId);
+        uint256 bobsRewardBalance = stakingRewards.balanceOf(_bob);
+        assertEq(bobsRewardBalance, 10 * 10 ** 18);
+        stakingRewards.approve(address(bank), 10 * 10 ** 18);
+        bank.redeem(tokenId);
+        bobsRewardBalance = stakingRewards.balanceOf(_bob);
+        assertEq(bobsRewardBalance, 0);
+        uint256 bobsNFTBalance = nftIssuer.balanceOf(_bob);
+        assertEq(bobsNFTBalance, 1);
+        vm.stopPrank();
+    }
 
-    function testCannotRedeemSomeoneElsesDeposit() public {}
+    function testCanDepositOnlyOnceInADay() public {
+        uint256 firstToken = 15;
+        uint256 secondToken = 17;
+        vm.startPrank(_bob);
+        nftIssuer.mint{value: 1 ether}(firstToken);
+        nftIssuer.mint{value: 1 ether}(secondToken);
+        // try to deposit first token.
+        nftIssuer.setApprovalForAll(address(bank), true);
+        bank.deposit(firstToken);
+        vm.expectRevert();
+        bank.deposit(secondToken);
+        vm.warp(block.timestamp + 25 hours);
+        bank.deposit(secondToken);
+
+        uint256 bobsNFTBalance = nftIssuer.balanceOf(_bob);
+        vm.stopPrank();
+
+        assertEq(bobsNFTBalance, 0);
+    }
+
+    function testCannotDepositAnothersNFT() public {
+        uint256 firstToken = 15;
+        vm.prank(_bob);
+        nftIssuer.mint{value: 1 ether}(firstToken);
+
+        vm.startPrank(_alice);
+        nftIssuer.setApprovalForAll(address(bank), true);
+        vm.expectRevert();
+        bank.deposit(firstToken);
+        vm.stopPrank();
+    }
 }
