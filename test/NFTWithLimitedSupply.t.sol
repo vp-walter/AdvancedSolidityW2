@@ -113,17 +113,16 @@ contract NFTWithLimitedSupplyTest is Test {
 
     function testCanDepositOnlyOnceInADay() public {
         uint256 firstToken = 15;
-        uint256 secondToken = 17;
         vm.startPrank(_bob);
         nftIssuer.mint{value: 1 ether}(firstToken);
-        nftIssuer.mint{value: 1 ether}(secondToken);
         // try to deposit first token.
         nftIssuer.setApprovalForAll(address(bank), true);
         bank.deposit(firstToken);
+        bank.redeem(firstToken);
         vm.expectRevert();
-        bank.deposit(secondToken);
+        bank.deposit(firstToken);
         vm.warp(block.timestamp + 25 hours);
-        bank.deposit(secondToken);
+        bank.deposit(firstToken);
 
         uint256 bobsNFTBalance = nftIssuer.balanceOf(_bob);
         vm.stopPrank();
