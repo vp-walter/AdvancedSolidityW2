@@ -2,7 +2,7 @@
 721A reduces the number of writes by assuming tokens are minted sequentially.
 
 ## Where does it add cost?
-Gas costs are significantly higher for reading data, because there is some iteration involved in finding the owner address as a result of reduces writes at the time of minting.
+Gas costs are significantly higher for reading data. There is some iteration involved in finding the owner address because of the lower number of writes at the time of minting.
 
 ## Why shouldn't ERC721A Enumerable be used on chain?
 The read costs would be prohibitively expensive.
